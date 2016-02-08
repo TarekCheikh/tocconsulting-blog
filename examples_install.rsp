@@ -1,0 +1,47 @@
+#-------------------------------------------------------------------------------
+# This variable holds the hostname of the system as set by the user. 
+# It can be used to force the installation to use an alternative   
+# hostname rather than using the first hostname found on the system
+# (e.g., for systems with multiple hostnames and network interfaces).
+ORACLE_HOSTNAME=ubuntuServer
+#-------------------------------------------------------------------------------
+# Unix group to be set for the inventory directory.  
+UNIX_GROUP_NAME=oinstall
+#-------------------------------------------------------------------------------
+# Inventory location.
+INVENTORY_LOCATION=/u01/app/OraInventory
+#-------------------------------------------------------------------------------
+# Languages in which the components will be installed.             
+# The value should contain only one of these choices.              
+# en   : English                  ja   : Japanese                  
+# fr   : French                   ko   : Korean                    
+# ar   : Arabic                   es   : Latin American Spanish    
+# bn   : Bengali                  lv   : Latvian                   
+# pt_BR: Brazilian Portuguese     lt   : Lithuanian                
+# bg   : Bulgarian                ms   : Malay                     
+# fr_CA: Canadian French          es_MX: Mexican Spanish           
+# ca   : Catalan                  no   : Norwegian                 
+# hr   : Croatian                 pl   : Polish                    
+# cs   : Czech                    pt   : Portuguese                
+# da   : Danish                   ro   : Romanian                  
+# nl   : Dutch                    ru   : Russian                   
+# ar_EG: Egyptian                 zh_CN: Simplified Chinese        
+# en_GB: English (Great Britain)  sk   : Slovak                    
+# et   : Estonian                 sl   : Slovenian                 
+# fi   : Finnish                  es_ES: Spanish                   
+# de   : German                   sv   : Swedish                   
+# el   : Greek                    th   : Thai                      
+# iw   : Hebrew                   zh_TW: Traditional Chinese       
+# hu   : Hungarian                tr   : Turkish                   
+# is   : Icelandic                uk   : Ukrainian                 
+# in   : Indonesian               vi   : Vietnamese                
+# it   : Italian                                                   
+#
+# Example : SELECTED_LANGUAGES=en,fr,ja
+SELECTED_LANGUAGES=
+#-------------------------------------------------------------------------------
+# Complete path of the Oracle Home  
+ORACLE_HOME=/u01/app/oracle/product/11.2.0/db_1
+#-------------------------------------------------------------------------------
+# Complete path of the Oracle Base. 
+ORACLE_BASE=/u01/app/oracle
