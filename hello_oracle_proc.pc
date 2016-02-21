@@ -1,0 +1,180 @@
+/*
+ * hello_oracle_proc.pc :
+ * PRO*C example program to show how to perform a simple SELECT request
+ * on an Oracle database
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+/* PRO*C includes */
+#include <sqlca.h>
+#include <sqlcpr.h>
+
+/* Oracle connection parameters */
+#define DB_USER "hr"
+#define DB_PASSWORD "human"
+/* Service name as defined inside tnsnames.ora */
+#define DB_NAME "ORCLUBUNTU"
+/* Some lengths */
+#define NAME_LEN 30
+#define ERR_LEN 512
+#define FIRST_NAME_LEN 20
+#define LAST_NAME_LEN 25
+
+/*
+ * This function is called when errors occur
+ */
+void sql_error(char *msg)
+{
+	unsigned char err_msg[ERR_LEN];
+	size_t buf_len, msg_len;
+
+	EXEC SQL WHENEVER SQLERROR CONTINUE;
+
+	printf("\n");
+
+	if (msg)
+	{
+		printf("%s\n", msg);
+	}
+
+	buf_len = sizeof (err_msg);
+	/* sqlglm is an Oracle fonction that gives
+	 * more informations about the error
+	 */
+	sqlglm(err_msg, &buf_len, &msg_len);
+	printf("%.*s", (int)msg_len, err_msg);
+
+	EXEC SQL ROLLBACK RELEASE;
+
+	exit(EXIT_FAILURE);
+}
+
+/* Program entry point */
+int main(int argc, char **argv)
+{
+	/* The beginning of the "SQL" variables declaration section */
+	EXEC SQL BEGIN DECLARE SECTION;
+	/* User used to connect to the database */
+	VARCHAR username[NAME_LEN];
+	/* User 'username' password */
+	VARCHAR password[NAME_LEN];
+	/* Database schema */
+	VARCHAR database[NAME_LEN];
+
+	/*
+	 * Here we declare "host variables" to receive requests columns
+	 */
+	/* In order to get table columns you which to retreive
+	 * and their size
+	 * do : "describe employees;" in sqlplus
+	 */
+	int emp_dept;
+	VARCHAR emp_first_name[FIRST_NAME_LEN + 1]; /* The "+ 1" is for '\0' */
+	VARCHAR emp_last_name[LAST_NAME_LEN + 1];
+	int emp_salary;
+
+	/*
+	 * Here we declare "indicator variables" : they are used
+	 * to check if the request returns "NULL column"
+	 */
+	short emp_dept_ind;
+	short emp_first_name_ind;
+	short emp_last_name_ind;
+	short emp_salary_ind;
+
+	EXEC SQL END DECLARE SECTION;
+	/* End of the "SQL" variables declaration section */
+
+	/*
+	 * We use 'VARCHAR' type inside our request
+	 * ==> A conversion between "char *" to 'VARCHAR' is needed
+	 */
+	strncpy((char *) username.arr, DB_USER, NAME_LEN);
+	username.len = (unsigned short) strlen((char *) username.arr);
+
+	strncpy((char *) password.arr, DB_PASSWORD, NAME_LEN);
+	password.len = (unsigned short) strlen((char *) password.arr);
+
+	strncpy((char *) database.arr, DB_NAME, NAME_LEN);
+	database.len = (unsigned short) strlen((char *) database.arr);
+
+	/*
+	 * When errors occur, log them using sql_error function
+	 */
+	EXEC SQL WHENEVER SQLERROR DO sql_error("ORACLE error: \n");
+
+	/* Connecting to the database */
+	EXEC SQL CONNECT :username IDENTIFIED BY :password USING :database;
+
+	/* Stop when ther's no lines to retreive */
+	EXEC SQL WHENEVER NOT FOUND DO BREAK;
+
+	/*
+	 * We declare a "CURSOR" (you can think of it as a buffer
+	 * that will hold all the result of our request.
+	 * And we can then loop through all the lines
+	 * "ROWS" of the result using it)
+	 */
+	EXEC SQL DECLARE emp_cursor CURSOR FOR
+
+		SELECT department_id, first_name, last_name, salary
+		FROM employees
+		WHERE PHONE_NUMBER is not null;
+
+	EXEC SQL OPEN emp_cursor;
+
+	/*
+	 * Run the request and loop the through the result lines
+	 */
+	for (;;)
+	{
+		EXEC SQL FETCH emp_cursor
+			INTO :emp_dept:emp_dept_ind,
+			     :emp_first_name:emp_first_name_ind,
+			     :emp_last_name:emp_last_name_ind,
+			     :emp_salary:emp_salary_ind;
+		/* We check 'indicator variables' to see if we */
+		/* got NULL column */
+		/* If "indicator variable" is equal to:
+		 * 0 ==> All is ok
+		 * -1 ==> The column is NULL
+		 */
+		/* In the description employees table, column last_name
+		 * cannot be NULL, so we can correctly terminate this string
+		 */
+		emp_last_name.arr[emp_last_name.len] = '\0';
+		if (emp_dept_ind == -1) {
+			printf("Oops! We got a NULL department_id for "
+					"employee %s!\n", emp_last_name.arr);
+			emp_dept = 0;
+		}
+		if (emp_first_name_ind == -1) {
+			printf("Oops! No first name found! "
+					"Let's use 'toto' instead :-\n");
+			strncpy((char *) emp_first_name.arr, "toto", \
+					FIRST_NAME_LEN);
+		}
+		if (emp_salary_ind == -1) {
+			printf("Oops! No salary! Got a volunteer :-\n");
+			emp_salary = 0.0;
+		}
+
+		emp_first_name.arr[emp_first_name.len] = '\0';
+
+		printf("<%d>, <%s>, <%s>, <%d>\n", \
+				emp_dept, emp_first_name.arr, emp_last_name.arr, \
+				emp_salary);
+	}
+
+	/*
+	 * Close cursor and connection
+	 */
+	EXEC SQL CLOSE emp_cursor;
+
+	EXEC SQL COMMIT RELEASE;
+
+	return EXIT_SUCCESS;
+}
