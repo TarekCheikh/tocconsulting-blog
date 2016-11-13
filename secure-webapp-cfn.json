@@ -1,0 +1,922 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+		"Resources": {
+			"NatMonitRole": {
+				"Type": "AWS::IAM::Role",
+				"Properties": {
+					"AssumeRolePolicyDocument": {
+						"Version" : "2012-10-17",
+						"Statement": [ {
+							"Effect": "Allow",
+							"Principal": {
+								"Service": [ "ec2.amazonaws.com" ]
+							},
+							"Action": [ "sts:AssumeRole" ]
+						} ]
+					},
+					"Path": "/",
+					"Policies": [ {
+						"PolicyName": "NatMonitPolicy",
+						"PolicyDocument": {
+							"Version": "2012-10-17",
+							"Statement": [ {
+								"Action": [
+									"ec2:CreateRoute",
+									"ec2:DeleteRoute",
+									"ec2:ModifyInstanceAttribute",
+									"ec2:ReplaceRoute",
+									"ec2:DescribeRouteTables"
+								],
+								"Effect": "Allow",
+								"Resource": "*"
+							}
+							]
+						}
+					} ]
+				}
+			},
+			"NatMonitIamInstanceProfile": {
+				"Type": "AWS::IAM::InstanceProfile",
+				"Properties": {
+					"Path": "/",
+					"Roles": [ {
+						"Ref": "NatMonitRole"
+					} ]
+				}
+			},
+			"webAppVpc": {
+				"Type": "AWS::EC2::VPC",
+				"Properties": {
+					"CidrBlock": "192.168.1.0/24",
+					"InstanceTenancy": "default",
+					"EnableDnsSupport": "true",
+					"EnableDnsHostnames": "false",
+					"Tags": [
+					{
+						"Key": "Name",
+						"Value": "webapp-vpc"
+					},
+					{
+						"Key": "environment",
+						"Value": "ENV_TAG"
+					}
+					]
+				}
+			},
+			"webappPublicDmzSubnet": {
+				"Type": "AWS::EC2::Subnet",
+				"Properties": {
+					"CidrBlock": "192.168.1.0/26",
+					"AvailabilityZone": "eu-west-1a",
+					"VpcId": {
+						"Ref": "webAppVpc"
+					},
+					"Tags": [
+					{
+						"Key": "Name",
+						"Value": "webapp-public-dmz-subnet"
+					},
+					{
+						"Key": "environment",
+						"Value": "ENV_TAG"
+					}
+					]
+				}
+			},
+			"webappPublicElbSubnet": {
+				"Type": "AWS::EC2::Subnet",
+				"Properties": {
+					"CidrBlock": "192.168.1.64/26",
+					"AvailabilityZone": "eu-west-1a",
+					"VpcId": {
+						"Ref": "webAppVpc"
+					},
+					"Tags": [
+					{
+						"Key": "Name",
+						"Value": "webapp-public-elb-subnet"
+					},
+					{
+						"Key": "environment",
+						"Value": "ENV_TAG"
+					}
+					]
+				}
+			},
+			"webappPrivateBackAppSubnet": {
+				"Type": "AWS::EC2::Subnet",
+				"Properties": {
+					"CidrBlock": "192.168.1.128/26",
+					"AvailabilityZone": "eu-west-1a",
+					"VpcId": {
+						"Ref": "webAppVpc"
+					},
+					"Tags": [
+					{
+						"Key": "Name",
+						"Value": "webapp-private-back-app-subnet"
+					},
+					{
+						"Key": "environment",
+						"Value": "ENV_TAG"
+					}
+					]
+				}
+			},
+			"webappPrivateBackDbSubnet": {
+				"Type": "AWS::EC2::Subnet",
+				"Properties": {
+					"CidrBlock": "192.168.1.192/26",
+					"AvailabilityZone": "eu-west-1a",
+					"VpcId": {
+						"Ref": "webAppVpc"
+					},
+					"Tags": [
+					{
+						"Key": "Name",
+						"Value": "webapp-private-back-db-subnet"
+					},
+					{
+						"Key": "environment",
+						"Value": "ENV_TAG"
+					}
+					]
+				}
+			},
+			"igwWebappVpc": {
+				"Type": "AWS::EC2::InternetGateway",
+				"Properties": {
+					"Tags": [
+					{
+						"Key": "Name",
+						"Value": "igw-webapp-vpc"
+					},
+					{
+						"Key": "environment",
+						"Value": "ENV_TAG"
+					}
+					]
+				}
+			},
+			"webAppVpcDhcpOptionsSet": {
+				"Type": "AWS::EC2::DHCPOptions",
+				"Properties": {
+					"DomainName": "eu-west-1.compute.internal",
+					"DomainNameServers": [
+						"AmazonProvidedDNS"
+					]
+				}
+			},
+			"webAppVpcNetworkAcl": {
+				"Type": "AWS::EC2::NetworkAcl",
+				"Properties": {
+					"VpcId": {
+						"Ref": "webAppVpc"
+					}
+				}
+			},
+			"rtbWebappPublic": {
+				"Type": "AWS::EC2::RouteTable",
+				"Properties": {
+					"VpcId": {
+						"Ref": "webAppVpc"
+					},
+					"Tags": [
+					{
+						"Key": "Name",
+						"Value": "rtb-webapp-public"
+					},
+					{
+						"Key": "environment",
+						"Value": "ENV_TAG"
+					}
+					]
+				}
+			},
+			"rtbWebappPrivate": {
+				"Type": "AWS::EC2::RouteTable",
+				"Properties": {
+					"VpcId": {
+						"Ref": "webAppVpc"
+					},
+					"Tags": [
+					{
+						"Key": "network",
+						"Value": "private"
+					},
+					{
+						"Key": "Name",
+						"Value": "rtb-webapp-private"
+					},
+					{
+						"Key": "environment",
+						"Value": "ENV_TAG"
+					}
+					]
+				}
+			},
+
+
+			"webappBastion": {
+				"Type": "AWS::EC2::Instance",
+				"Properties": {
+					"DisableApiTermination": "false",
+					"InstanceInitiatedShutdownBehavior": "stop",
+					"ImageId": "BASTION_AMI",
+					"InstanceType": "BASTION_INST_TYPE",
+					"KeyName": "INFRA_KEYPAIR",
+					"UserData"       : { "Fn::Base64" : {
+						"Fn::Join":[
+							"",
+							[
+								"#!/bin/bash\n",
+								"# This script is used to initialize WebApp Bastion server.\n",
+								"yum update -y\n",
+								"sed -i.bak s/HOSTNAME=localhost.localdomain/HOSTNAME=webapp_bastion/g /etc/sysconfig/network\n",
+								"echo \"127.0.1.1  webapp_bastion\" >> /etc/hosts\n",
+								"echo \"", {"Fn::GetAtt": ["webappBack", "PrivateIp"]}, "     webapp_Back\" >> /etc/hosts\n",
+								"echo \"", {"Fn::GetAtt": ["webappPg", "PrivateIp"]}, "     webapp_PgDb\" >> /etc/hosts\n",
+								"reboot\n"
+							]
+						]
+						}
+					},
+					"Monitoring": "false",
+					"Tags": [
+					{
+						"Key": "Name",
+						"Value": "webapp-bastion"
+					},
+					{
+						"Key": "environment",
+						"Value": "ENV_TAG"
+					}
+					],
+						"NetworkInterfaces": [
+						{
+							"DeleteOnTermination": "true",
+							"Description": "Primary network interface",
+							"DeviceIndex": 0,
+							"SubnetId": {
+								"Ref": "webappPublicDmzSubnet"
+							},
+							"GroupSet": [
+							{
+								"Ref": "sgWebappBastionSsh"
+							}
+							],
+								"AssociatePublicIpAddress": "true"
+						}
+						]
+				}
+			},
+			"webappNat": {
+				"Type": "AWS::EC2::Instance",
+				"Properties": {
+					"DisableApiTermination": "false",
+					"InstanceInitiatedShutdownBehavior": "stop",
+					"IamInstanceProfile": { "Ref" : "NatMonitIamInstanceProfile" },
+					"ImageId": "NAT_AMI",
+					"InstanceType": "NAT_INST_TYPE",
+					"KeyName": "INFRA_KEYPAIR",
+					"UserData"       : { "Fn::Base64" : {
+						"Fn::Join":[
+							"",
+						[
+							"#!/bin/bash\n",
+						"# This script is to set a default route for route tables that need NAT in the same VPC.\n",
+						"MAC_ADDRESS=`curl http://169.254.169.254/latest/meta-data/network/interfaces/macs/`\n",
+						"VPC_ID=`curl http://169.254.169.254/latest/meta-data/network/interfaces/macs/${MAC_ADDRESS:-1}/vpc-id`\n",
+						"INSTANCE_ID=`curl http://169.254.169.254/latest/meta-data/instance-id`\n",
+						"REGION=`curl http://169.254.169.254/latest/dynamic/instance-identity/document|grep region|awk -F\\\" '{print $4}'`\n",
+						"TAG_KEY=\"network\"\n",
+						"TAG_VALUE=\"private\"\n",
+						"# Get options\n",
+						"while [ \"$1\" != \"\" ]; do\n",
+						"    case $1 in\n",
+						"        --tag-key)      shift\n",
+						"                        $TAG_KEY=$1\n",
+						"                        ;;\n",
+						"        --tag-value)    shift\n",
+						"                        $TAG_VALUE=$1\n",
+						"                        ;;\n",
+						"        *)              exit\n",
+						"                        ;;\n",
+						"    esac\n",
+						"    shift\n",
+						"done\n",
+						"# Determine route tables that need to use NAT for the same VPC\n",
+						"ROUTE_TABLES=`aws ec2 describe-route-tables --filters \"Name=tag:$TAG_KEY,Values=$TAG_VALUE\" --region $REGION --output text | grep ROUTETABLES | grep $VPC_ID | awk '{print $2}'`\n",
+						"for ROUTE_TABLE  in $ROUTE_TABLES\n",
+						"do\n",
+						"   TARGET=`aws ec2 describe-route-tables --filters \"Name=route-table-id,Values=$ROUTE_TABLE\" --region $REGION --output text | grep \"0.0.0.0/0\" | awk '{print $3}'`\n",
+						"   if [ \"$TARGET\" = \"\" ]; then\n",
+						"      # Create default route \n",
+						"      aws ec2 create-route --route-table-id $ROUTE_TABLE --destination-cidr-block 0.0.0.0/0 --instance-id $INSTANCE_ID --region $REGION\n",
+						"   elif [ \"$TARGET\" != \"$INSTANCE_ID\" ]; then\n",
+						"      # Replace default route\n",
+						"      aws ec2 replace-route --route-table-id $ROUTE_TABLE --destination-cidr-block 0.0.0.0/0 --instance-id $INSTANCE_ID --region $REGION\n",
+						"   fi\n",
+						"done\n",
+						"# disable source destination check\n",
+						"aws ec2 modify-instance-attribute --instance-id $INSTANCE_ID --no-source-dest-check --region $REGION\n"
+							]
+							]
+					}
+					},
+					"Monitoring": "false",
+					"Tags": [
+					{
+						"Key": "Name",
+						"Value": "webapp-nat"
+					},
+					{
+						"Key": "environment",
+						"Value": "ENV_TAG"
+					}
+					],
+						"NetworkInterfaces": [
+						{
+							"DeleteOnTermination": "true",
+							"Description": "Primary network interface",
+							"DeviceIndex": 0,
+							"SubnetId": {
+								"Ref": "webappPublicDmzSubnet"
+							},
+							"GroupSet": [
+							{
+								"Ref": "sgWebappNat"
+							}
+							],
+								"AssociatePublicIpAddress": "true"
+						}
+						]
+				}
+			},
+			"webappPg": {
+				"Type": "AWS::EC2::Instance",
+				"Properties": {
+					"DisableApiTermination": "false",
+					"InstanceInitiatedShutdownBehavior": "stop",
+					"ImageId": "PG_AMI",
+					"InstanceType": "PG_INST_TYPE",
+					"KeyName": "APP_KEYPAIR",
+					"UserData"       : { "Fn::Base64" : {
+						"Fn::Join":[
+							"",
+						[
+							"#!/bin/bash\n",
+						"# This script is used to initialize WebApp PG server.\n",
+						"sudo apt-get update\n",
+						"sudo apt-get upgrade -y\n",
+						"sudo apt-get update\n",
+						"sudo apt-get install postgresql-9.4 -y\n",
+						"sudo echo \"webapp_PgDb\" > /etc/hostname\n",
+						"sudo echo \"127.0.1.1  webapp_PgDb\" >> /etc/hosts\n",
+						"# \n",
+						"sudo reboot\n"
+							]
+							]
+					}
+					},
+					"Monitoring": "false",
+					"Tags": [
+					{
+						"Key": "Name",
+						"Value": "webapp-pg"
+					},
+					{
+						"Key": "environment",
+						"Value": "ENV_TAG"
+					}
+					],
+						"NetworkInterfaces": [
+						{
+							"DeleteOnTermination": "true",
+							"Description": "Primary network interface",
+							"DeviceIndex": 0,
+							"SubnetId": {
+								"Ref": "webappPrivateBackDbSubnet"
+							},
+							"GroupSet": [
+							{
+								"Ref": "sgWebappPg"
+							}
+							]
+						}
+						]
+				}
+			},
+			"webappBack": {
+				"Type": "AWS::EC2::Instance",
+				"Properties": {
+					"DisableApiTermination": "false",
+					"InstanceInitiatedShutdownBehavior": "stop",
+					"ImageId": "BACK_AMI",
+					"InstanceType": "BACK_INST_TYPE",
+					"KeyName": "APP_KEYPAIR",
+					"UserData"       : { "Fn::Base64" : {
+						"Fn::Join":[
+							"",
+						[
+							"#!/bin/bash\n",
+						"# This script is used to initialize WebApp Back server.\n",
+						"sudo apt-get update\n",
+						"sudo apt-get upgrade -y\n",
+						"sudo apt-get update\n",
+						"sudo apt-get install apache2 -y\n",
+						"sudo mkdir -p /opt/webapp-web\n",
+						"sudo echo \"<VirtualHost *:80>\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"      ServerName mywebapp.fr\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"      ServerAlias www.mywebapp.fr\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"\n\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"      DocumentRoot /opt/webapp-web\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"\n\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"       <Directory /opt/webapp-web>\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"                DirectoryIndex index.html\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"                Options Indexes FollowSymLinks MultiViews\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"                AllowOverride All\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"                Order allow,deny\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"                allow from all\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"        </Directory>\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"\n\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"        ErrorLog ${APACHE_LOG_DIR}/error_webapp.log\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"        LogLevel warn\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"        CustomLog ${APACHE_LOG_DIR}/access_webapp.log combined\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo echo \"</VirtualHost>\" >> /etc/apache2/sites-available/webapp.conf\n",
+						"sudo /usr/sbin/a2ensite webapp.conf\n",
+						"sudo echo \"webapp_Back\" > /etc/hostname\n",
+						"sudo echo \"127.0.1.1  webapp_Back\" >> /etc/hosts\n",
+						"sudo reboot\n"
+							]
+							]
+					}
+					},
+					"Monitoring": "false",
+					"Tags": [
+					{
+						"Key": "Name",
+						"Value": "webapp-Back"
+					},
+					{
+						"Key": "environment",
+						"Value": "ENV_TAG"
+					}
+					],
+						"NetworkInterfaces": [
+						{
+							"DeleteOnTermination": "true",
+							"Description": "Primary network interface",
+							"DeviceIndex": 0,
+							"SubnetId": {
+								"Ref": "webappPrivateBackAppSubnet"
+							},
+							"GroupSet": [
+							{
+								"Ref": "sgWebappBack"							}
+							]
+						}
+						]
+				}
+			},
+
+			"elbWebappBack": {
+				"Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+				"Properties": {
+					"Subnets": [
+					{
+						"Ref": "webappPublicElbSubnet"
+					}
+					],
+						"HealthCheck": {
+							"HealthyThreshold": "2",
+							"Interval": "10",
+							"Target": "TCP:80",
+							"Timeout": "5",
+							"UnhealthyThreshold": "2"
+						},
+						"ConnectionDrainingPolicy": {
+							"Enabled": "true",
+							"Timeout": "300"
+						},
+						"ConnectionSettings": {
+							"IdleTimeout": "60"
+						},
+						"CrossZone": "true",
+						"Instances": [
+						{
+							"Ref": "webappBack"
+						}
+						],
+							"SecurityGroups": [
+							{
+								"Ref": "sgElbWebappBack"
+							}
+							],
+								"LoadBalancerName" : "ElbWebappBack",
+								"Listeners": [
+								{
+									"InstancePort": "80",
+									"LoadBalancerPort": "80",
+									"Protocol": "HTTP",
+									"InstanceProtocol": "HTTP"
+								}
+								],
+									"Tags": [
+									{
+										"Key": "Name",
+										"Value": "elb-webapp-Back"
+									},
+									{
+										"Key": "environment",
+										"Value": "ENV_TAG"
+									}
+									]
+				}
+			},
+
+
+			"sgWebappBack": {
+				"Type": "AWS::EC2::SecurityGroup",
+				"Properties": {
+					"GroupDescription": "SG for webapp Back instance",
+					"VpcId": {
+						"Ref": "webAppVpc"
+					}
+				}
+			},
+			"sgWebappBastionSsh": {
+				"Type": "AWS::EC2::SecurityGroup",
+				"Properties": {
+					"GroupDescription": "Allow ssh to the webapp bastion ec2",
+					"VpcId": {
+						"Ref": "webAppVpc"
+					}
+				}
+			},
+			"sgWebappPg": {
+				"Type": "AWS::EC2::SecurityGroup",
+				"Properties": {
+					"GroupDescription": "SG for webapp-pg",
+					"VpcId": {
+						"Ref": "webAppVpc"
+					}
+				}
+			},
+			"sgWebappVpcDefault": {
+				"Type": "AWS::EC2::SecurityGroup",
+				"Properties": {
+					"GroupDescription": "default Webapp VPC security group",
+					"VpcId": {
+						"Ref": "webAppVpc"
+					}
+				}
+			},
+
+			"sgElbWebappBack": {
+				"Type": "AWS::EC2::SecurityGroup",
+				"Properties": {
+					"GroupDescription": "SG for elb-webapp-Back",
+					"VpcId": {
+						"Ref": "webAppVpc"
+					}
+				}
+			},
+
+			"sgWebappNat": {
+				"Type": "AWS::EC2::SecurityGroup",
+				"Properties": {
+					"GroupDescription": "Allowing all traffic from webapp private subnet through nat",
+					"VpcId": {
+						"Ref": "webAppVpc"
+					}
+				}
+			},
+			"webappAcl1": {
+				"Type": "AWS::EC2::NetworkAclEntry",
+				"Properties": {
+					"CidrBlock": "0.0.0.0/0",
+					"Egress": "true",
+					"Protocol": "-1",
+					"RuleAction": "allow",
+					"RuleNumber": "100",
+					"NetworkAclId": {
+						"Ref": "webAppVpcNetworkAcl"
+					}
+				}
+			},
+			"webappAcl2": {
+				"Type": "AWS::EC2::NetworkAclEntry",
+				"Properties": {
+					"CidrBlock": "0.0.0.0/0",
+					"Protocol": "-1",
+					"RuleAction": "allow",
+					"RuleNumber": "100",
+					"NetworkAclId": {
+						"Ref": "webAppVpcNetworkAcl"
+					}
+				}
+			},
+			"subnetWebappPublicElbAclAssoc": {
+				"Type": "AWS::EC2::SubnetNetworkAclAssociation",
+				"Properties": {
+					"NetworkAclId": {
+						"Ref": "webAppVpcNetworkAcl"
+					},
+					"SubnetId": {
+						"Ref": "webappPublicElbSubnet"
+					}
+				}
+			},
+			"subnetWebappPublicDmzAclAssoc": {
+				"Type": "AWS::EC2::SubnetNetworkAclAssociation",
+				"Properties": {
+					"NetworkAclId": {
+						"Ref": "webAppVpcNetworkAcl"
+					},
+					"SubnetId": {
+						"Ref": "webappPublicDmzSubnet"
+					}
+				}
+			},
+			"subnetWebappPrivateBackDbAclAssoc": {
+				"Type": "AWS::EC2::SubnetNetworkAclAssociation",
+				"Properties": {
+					"NetworkAclId": {
+						"Ref": "webAppVpcNetworkAcl"
+					},
+					"SubnetId": {
+						"Ref": "webappPrivateBackDbSubnet"
+					}
+				}
+			},
+			"subnetWebappPrivateBackAppAclAssoc": {
+				"Type": "AWS::EC2::SubnetNetworkAclAssociation",
+				"Properties": {
+					"NetworkAclId": {
+						"Ref": "webAppVpcNetworkAcl"
+					},
+					"SubnetId": {
+						"Ref": "webappPrivateBackAppSubnet"
+					}
+				}
+			},
+			"webAppVpcIgwAttachment": {
+				"Type": "AWS::EC2::VPCGatewayAttachment",
+				"Properties": {
+					"VpcId": {
+						"Ref": "webAppVpc"
+					},
+					"InternetGatewayId": {
+						"Ref": "igwWebappVpc"
+					}
+				}
+			},
+			"subnetWebappPublicElbRouteTableAssoc": {
+				"Type": "AWS::EC2::SubnetRouteTableAssociation",
+				"Properties": {
+					"RouteTableId": {
+						"Ref": "rtbWebappPublic"
+					},
+					"SubnetId": {
+						"Ref": "webappPublicElbSubnet"
+					}
+				}
+			},
+			"subnetWebappPublicDmzRouteTableAssoc": {
+				"Type": "AWS::EC2::SubnetRouteTableAssociation",
+				"Properties": {
+					"RouteTableId": {
+						"Ref": "rtbWebappPublic"
+					},
+					"SubnetId": {
+						"Ref": "webappPublicDmzSubnet"
+					}
+				}
+			},
+			"subnetWebappPrivateBackDbRouteTableAssoc": {
+				"Type": "AWS::EC2::SubnetRouteTableAssociation",
+				"Properties": {
+					"RouteTableId": {
+						"Ref": "rtbWebappPrivate"
+					},
+					"SubnetId": {
+						"Ref": "webappPrivateBackDbSubnet"
+					}
+				}
+			},
+			"subnetWebappPrivateBackAppRouteTableAssoc": {
+				"Type": "AWS::EC2::SubnetRouteTableAssociation",
+				"Properties": {
+					"RouteTableId": {
+						"Ref": "rtbWebappPrivate"
+					},
+					"SubnetId": {
+						"Ref": "webappPrivateBackAppSubnet"
+					}
+				}
+			},
+			"webAppVpcRoutePublic": {
+				"Type": "AWS::EC2::Route",
+				"Properties": {
+					"DestinationCidrBlock": "0.0.0.0/0",
+					"RouteTableId": {
+						"Ref": "rtbWebappPublic"
+					},
+					"GatewayId": {
+						"Ref": "igwWebappVpc"
+					}
+				},
+				"DependsOn": "webAppVpcIgwAttachment"
+			},
+			"webAppVpcRoutePrivate": {
+				"Type": "AWS::EC2::Route",
+				"Properties": {
+					"DestinationCidrBlock": "0.0.0.0/0",
+					"RouteTableId": {
+						"Ref": "rtbWebappPrivate"
+					},
+					"InstanceId": {
+						"Ref": "webappNat"
+					}
+				}
+			},
+			"webappDhcpOptAssoc": {
+				"Type": "AWS::EC2::VPCDHCPOptionsAssociation",
+				"Properties": {
+					"VpcId": {
+						"Ref": "webAppVpc"
+					},
+					"DhcpOptionsId": {
+						"Ref": "webAppVpcDhcpOptionsSet"
+					}
+				}
+			},
+			"webappIngressBackP80To80": {
+				"Type": "AWS::EC2::SecurityGroupIngress",
+				"Properties": {
+					"GroupId": {
+						"Ref": "sgWebappBack"
+					},
+					"IpProtocol": "tcp",
+					"FromPort": "80",
+					"ToPort": "80",
+					"SourceSecurityGroupId": {
+						"Ref": "sgElbWebappBack"
+					},
+					"SourceSecurityGroupOwnerId": "AWS_ACCOUNT_ID"
+				}
+			},
+			"webappIngressBackP22ToP22": {
+				"Type": "AWS::EC2::SecurityGroupIngress",
+				"Properties": {
+					"GroupId": {
+						"Ref": "sgWebappBack"
+					},
+					"IpProtocol": "tcp",
+					"FromPort": "22",
+					"ToPort": "22",
+					"SourceSecurityGroupId": {
+						"Ref": "sgWebappBastionSsh"
+					},
+					"SourceSecurityGroupOwnerId": "AWS_ACCOUNT_ID"
+				}
+			},
+			"webappIngressBastionP22ToP22": {
+				"Type": "AWS::EC2::SecurityGroupIngress",
+				"Properties": {
+					"GroupId": {
+						"Ref": "sgWebappBastionSsh"
+					},
+					"IpProtocol": "tcp",
+					"FromPort": "22",
+					"ToPort": "22",
+					"CidrIp": "0.0.0.0/0"
+				}
+			},
+
+			"webappIngressPgP22ToP22": {
+				"Type": "AWS::EC2::SecurityGroupIngress",
+				"Properties": {
+					"GroupId": {
+						"Ref": "sgWebappPg"
+					},
+					"IpProtocol": "tcp",
+					"FromPort": "22",
+					"ToPort": "22",
+					"SourceSecurityGroupId": {
+						"Ref": "sgWebappBastionSsh"
+					},
+					"SourceSecurityGroupOwnerId": "AWS_ACCOUNT_ID"
+				}
+			},
+			"webappIngressPgPallToPall": {
+				"Type": "AWS::EC2::SecurityGroupIngress",
+				"Properties": {
+					"GroupId": {
+						"Ref": "sgWebappPg"
+					},
+					"IpProtocol": "-1",
+					"CidrIp": "192.168.1.0/24"
+				}
+			},
+			"webappIngressVpcDefault": {
+				"Type": "AWS::EC2::SecurityGroupIngress",
+				"Properties": {
+					"GroupId": {
+						"Ref": "sgWebappVpcDefault"
+					},
+					"IpProtocol": "-1",
+					"SourceSecurityGroupId": {
+						"Ref": "sgWebappVpcDefault"
+					},
+					"SourceSecurityGroupOwnerId": "AWS_ACCOUNT_ID"
+				}
+			},
+			"webappIngressBackP80ToP80": {
+				"Type": "AWS::EC2::SecurityGroupIngress",
+				"Properties": {
+					"GroupId": {
+						"Ref": "sgElbWebappBack"
+					},
+					"IpProtocol": "tcp",
+					"FromPort": "80",
+					"ToPort": "80",
+					"CidrIp": "0.0.0.0/0"
+				}
+			},
+
+			"webappIngressNatPallToPall": {
+				"Type": "AWS::EC2::SecurityGroupIngress",
+				"Properties": {
+					"GroupId": {
+						"Ref": "sgWebappNat"
+					},
+					"IpProtocol": "-1",
+					"CidrIp": "192.168.1.0/24"
+				}
+			},
+			"webappEgressBackPallToPall": {
+				"Type": "AWS::EC2::SecurityGroupEgress",
+				"Properties": {
+					"GroupId": {
+						"Ref": "sgWebappBack"
+					},
+					"IpProtocol": "-1",
+					"CidrIp": "0.0.0.0/0"
+				}
+			},
+			"webappEgressBastionPallToPall": {
+				"Type": "AWS::EC2::SecurityGroupEgress",
+				"Properties": {
+					"GroupId": {
+						"Ref": "sgWebappBastionSsh"
+					},
+					"IpProtocol": "-1",
+					"CidrIp": "0.0.0.0/0"
+				}
+			},
+			"webappEgressPgPallToPall": {
+				"Type": "AWS::EC2::SecurityGroupEgress",
+				"Properties": {
+					"GroupId": {
+						"Ref": "sgWebappPg"
+					},
+					"IpProtocol": "-1",
+					"CidrIp": "0.0.0.0/0"
+				}
+			},
+			"webappEgressDefaultPallToPall": {
+				"Type": "AWS::EC2::SecurityGroupEgress",
+				"Properties": {
+					"GroupId": {
+						"Ref": "sgWebappVpcDefault"
+					},
+					"IpProtocol": "-1",
+					"CidrIp": "0.0.0.0/0"
+				}
+			},
+			"webappEgressElbBackPallToPall": {
+				"Type": "AWS::EC2::SecurityGroupEgress",
+				"Properties": {
+					"GroupId": {
+						"Ref": "sgElbWebappBack"
+					},
+					"IpProtocol": "-1",
+					"CidrIp": "0.0.0.0/0"
+				}
+			},
+
+			"webappEgressNatPallToPall": {
+				"Type": "AWS::EC2::SecurityGroupEgress",
+				"Properties": {
+					"GroupId": {
+						"Ref": "sgWebappNat"
+					},
+					"IpProtocol": "-1",
+					"CidrIp": "0.0.0.0/0"
+				}
+			}
+		},
+		"Description": "Webapp cfn v1"
+}
