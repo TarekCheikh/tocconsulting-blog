@@ -77,7 +77,6 @@ func getObjectsAll(bucketObjectsList *s3.ListObjectsV2Output, s3Client *s3.S3) {
 	//fmt.Println("One ring to rule them all")
 	// Iterate through the files inside the bucket
 	for _, key := range bucketObjectsList.Contents {
-		fmt.Println(*key.Key)
 		destFilename := *key.Key
 		if strings.HasSuffix(*key.Key, "/") {
 			fmt.Println("Got a directory")
@@ -85,13 +84,15 @@ func getObjectsAll(bucketObjectsList *s3.ListObjectsV2Output, s3Client *s3.S3) {
 		}
 		numberOfRetrievedFiles++
 		if strings.Contains(*key.Key, "/") {
+			var dirTree string
 			// split
 			s3FileFullPathList := strings.Split(*key.Key, "/")
 			fmt.Println(s3FileFullPathList)
 			fmt.Println("destFilename " + destFilename)
 			for _, dir := range s3FileFullPathList[:len(s3FileFullPathList)-1] {
-				os.MkdirAll(os.Args[3]+dir, 0775)
+				dirTree += "/" + dir
 			}
+			os.MkdirAll(os.Args[3]+"/"+dirTree, 0775)
 		}
 		out, err := s3Client.GetObject(&s3.GetObjectInput{
 			Bucket: aws.String(os.Args[2]),
